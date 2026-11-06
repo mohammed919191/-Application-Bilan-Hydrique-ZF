@@ -12,11 +12,12 @@ const today = () => { const d = new Date(); return d.getFullYear() + '-' + (d.ge
 const clean = t => String(t).replace(/<[^>]+>/g, '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{20E3}«»]/gu, '').trim();
 
 /* ---------- الحفظ ---------- */
-const DEFAULT = { stars: 0, stats: {}, levels: {}, days: {}, seen: {}, breakShown: '', settings: { voice: true, rate: 0.85, goal: 20, qtime: 20 } };
+const DEFAULT = { stars: 0, stats: {}, levels: {}, days: {}, seen: {}, breakShown: '', path: {}, lessonStars: {}, plan: null, v: 2, settings: { voice: true, rate: 0.85, goal: 15, qtime: 0 } };
 let S;
 try {
   S = Object.assign(JSON.parse(JSON.stringify(DEFAULT)), JSON.parse(localStorage.getItem('rihana') || '{}'));
   S.settings = Object.assign({}, DEFAULT.settings, S.settings);
+  if ((S.v || 1) < 2) { S.settings.qtime = 0; S.v = 2; }
 } catch (e) { S = JSON.parse(JSON.stringify(DEFAULT)); }
 function save() { try { localStorage.setItem('rihana', JSON.stringify(S)); } catch (e) { /* تخزين غير متاح */ } }
 
@@ -108,7 +109,7 @@ function toast(html, big) {
 }
 function celebrate(big) {
   const fx = $('#fx'), em = ['⭐', '🌟', '🎉', '🌸', '💖', '🎈', '✨', '🦋'];
-  for (let i = 0; i < (big ? 40 : 14); i++) {
+  for (let i = 0; i < (big ? 18 : 8); i++) {
     const s = document.createElement('span');
     s.className = 'conf'; s.textContent = pick(em);
     s.style.left = Math.random() * 100 + 'vw';
@@ -159,7 +160,8 @@ const stack = [];
 let T = [], raf = null;
 function later(f, ms) { const id = setTimeout(f, ms); T.push(id); return id; }
 function clearT() { T.forEach(clearTimeout); T = []; if (raf) { cancelAnimationFrame(raf); raf = null; } }
-function go(fn, ...args) { stack.push({ fn, args }); clearT(); fn(...args); window.scrollTo(0, 0); }
+let LES = null; // الدرس الجاري في المسار
+function go(fn, ...args) { stack.push({ fn, args }); clearT(); LES = null; fn(...args); window.scrollTo(0, 0); }
 function replace(fn, ...args) { stack.pop(); go(fn, ...args); }
 function back() { sfx.tap(); stack.pop(); const p = stack.pop(); if (p) go(p.fn, ...p.args); else go(home); }
 function goHome() { stack.length = 0; go(home); }
@@ -169,7 +171,7 @@ function main(html) {
   m.classList.remove('enter'); void m.offsetWidth; m.classList.add('enter');
   return m;
 }
-const bar = title => `<div class="bar"><button class="back" onclick="back()">→ رجوع</button><h2>${title}</h2></div>`;
+const bar = title => LES ? lessonBar() : `<div class="bar"><button class="back" onclick="back()">→ رجوع</button><h2>${title}</h2></div>`;
 
 function menu(title, items) {
   main(bar(title) + `<div class="tiles">${items.map((it, i) =>
@@ -184,28 +186,6 @@ const SUBJECTS = [
   { id: 'fr', name: 'الفرنسية', icon: '🇫🇷', sub: 'Français', c: '#7c83ff', f: () => langMenu, a: ['fr'] },
   { id: 'en', name: 'الإنجليزية', icon: '🇬🇧', sub: 'English', c: '#ffad33', f: () => langMenu, a: ['en'] },
 ];
-
-function home(first) {
-  const todaySec = S.days[today()] || 0, goal = S.settings.goal * 60;
-  const unlocked = Math.min(Math.floor(S.stars / 10), STICKERS.length);
-  const sug = suggestion();
-  main(`
-    <div class="subjects">${SUBJECTS.map((s, i) => `<button class="subj" style="--c:${s.c}" data-i="${i}"><span class="big">${s.icon}</span><b>${s.name}</b><small dir="auto">${s.sub}</small></button>`).join('')}</div>
-    <button class="suggest" id="sug"><span class="ti">💡</span><span><b>اقتراح المعلمة ${TEACHER}:</b><br>${sug.text}</span><span class="go">▶</span></button>
-    <div class="card goal"><div class="row"><b>🎯 هدف اليوم</b><span>${Math.floor(todaySec / 60)} / ${S.settings.goal} دقيقة</span></div>
-      <div class="meter"><div style="width:${Math.min(100, todaySec / goal * 100)}%"></div></div></div>
-    <div class="card"><div class="row"><b>🎁 ملصقاتي</b><span>${10 - (S.stars % 10)} نجوم للملصق التالي</span></div>
-      <div class="stickers">${STICKERS.map((s, i) => `<span class="${i < unlocked ? 'on' : 'off'}">${i < unlocked ? s : '❔'}</span>`).join('')}</div></div>
-  `);
-  $$('.subj').forEach(b => b.onclick = () => { sfx.tap(); const s = SUBJECTS[b.dataset.i]; go(s.f(), ...(s.a || [])); });
-  $('#sug').onclick = () => { sfx.tap(); go(sug.f, ...(sug.a || [])); };
-  const h = new Date().getHours();
-  const greet = h < 12 ? 'صباح الخير' : 'مساء الخير';
-  const firstTime = first && !greeted; greeted = true;
-  teacher(firstTime
-    ? `${greet} يا ${NAME}! 🌸 أنا معلمتك ${TEACHER}. ${sug.text} أو اختاري المادة التي تحبينها!`
-    : `ماذا نتعلم الآن يا ${NAME}؟ 😊`);
-}
 
 // المعلمة تقترح الدرس حسب الأخطاء والتقدّم
 function suggestion() {
@@ -247,7 +227,7 @@ function quiz(cfg) {
   let i = 0, score = 0;
   function show() {
     clearT();
-    if (i >= total) return end();
+    if (i >= total) return cfg.onEnd ? cfg.onEnd(score, total) : end();
     const q = cfg.make(i);
     let answered = false, wrongs = 0;
     const sid = main(bar(cfg.title) + `
@@ -256,6 +236,7 @@ function quiz(cfg) {
       <div class="timer" ${S.settings.qtime ? '' : 'hidden'}><div id="tbar"></div></div>
       <div class="choices ${q.cls || ''}">${q.choices.map((c, k) => `<button class="choice" data-k="${k}" ${c.dir ? `dir="${c.dir}"` : ''}>${c.h}</button>`).join('')}</div>
       <button class="hear" id="hearQ">🔊 أعيدي السؤال</button>`) && SCR;
+    if (q.onShow) q.onShow();
 
     const stopTimer = () => { if (raf) { cancelAnimationFrame(raf); raf = null; } };
     const startTimer = () => {
@@ -417,16 +398,16 @@ function arWords() {
 function arLetterQuiz() {
   let last;
   quiz({
-    title: '🎧 لعبة الحروف', total: 8,
+    title: '🎧 لعبة الحروف', total: 6,
     make(i) {
       const l = pickWeighted(AR_LETTERS, x => 'ar:L:' + x.c, last); last = l;
-      const others = shuffle(AR_LETTERS.filter(x => x !== l)).slice(0, 3);
+      const others = shuffle(AR_LETTERS.filter(x => x !== l)).slice(0, 2);
       const choices = shuffle([l, ...others]).map(x => ({ h: `<span class="ar-font cbig">${x.c}</span>`, ok: x === l }));
-      const base = { key: 'ar:L:' + l.c, label: 'حرف ' + l.n, choices, cls: 'four',
+      const base = { key: 'ar:L:' + l.c, label: 'حرف ' + l.n, choices, cls: 'three',
         afterSay: [[`حرف ${l.n}، مثل ${l.w}`, 'ar']] };
       if (i % 2 === 0) return { ...base, text: `أين حرف <b>${l.n}</b>؟ 👂`, say: [[`أين حرف ${l.n}؟`, 'ar']] };
-      return { ...base, html: `<div class="emo-big">${l.e}</div><div class="ar-font qword">${l.w}</div>`,
-        text: `بأي حرف تبدأ كلمة <b>${l.w}</b>؟`, say: [[`بأي حرف تبدأ كلمة ${l.w}؟`, 'ar']] };
+      return { ...base, html: `<div class="emo-big">${l.e}</div>`,
+        text: `${l.e} ${l.w}: بأي حرف تبدأ؟`, say: [[l.w, 'ar'], [`${l.w} تبدأ بحرف... أين هو؟`, 'ar']] };
     },
   });
 }
@@ -434,33 +415,23 @@ function arLetterQuiz() {
 function harakaQuiz() {
   const H3 = HARAKAT.slice(0, 3);
   quiz({
-    title: '🎯 لعبة الحركات', total: 8,
-    make(i) {
+    title: '🎯 لعبة الحركات', total: 6,
+    make() {
       const l = pick(AR_LETTERS.slice(1));
-      if (i % 2 === 0) {
-        const h = pickWeighted(H3, x => 'ar:H:' + x.id), syl = l.c + h.m;
-        return {
-          key: 'ar:H:' + h.id, label: h.n, cls: 'three',
-          text: 'اسمعي جيدًا 👂 واختاري الصوت الصحيح', say: [['اسمعي جيدًا', 'ar'], [syl, 'ar'], [syl, 'ar']],
-          html: '<div class="emo-big">👂</div>',
-          choices: shuffle(H3).map(x => ({ h: `<span class="ar-font cbig">${l.c + x.m}</span>`, ok: x === h })),
-          afterSay: [[syl, 'ar'], [h.n, 'ar']],
-        };
-      }
-      const h = pickWeighted(HARAKAT, x => 'ar:H:' + x.id);
+      const h = pickWeighted(H3, x => 'ar:H:' + x.id), syl = l.c + h.m;
       return {
-        key: 'ar:H:' + h.id, label: h.n, cls: 'two',
-        html: `<div class="ar-font syl-q">${l.c + h.m}</div>`,
-        text: 'ما اسم الحركة على هذا الحرف؟', say: [['ما اسم الحركة على هذا الحرف؟', 'ar']],
-        choices: shuffle(HARAKAT).map(x => ({ h: `<span class="ar-font">${x.n}</span>`, ok: x === h })),
-        afterSay: [[h.n, 'ar']],
+        key: 'ar:H:' + h.id, label: h.n, cls: 'three',
+        text: 'اسمعي جيدًا 👂 واختاري ما سمعتِ', say: [['اسمعي جيدًا', 'ar'], [syl, 'ar'], [syl, 'ar']],
+        html: '<div class="emo-big">👂</div>',
+        choices: shuffle(H3).map(x => ({ h: `<span class="ar-font cbig">${l.c + x.m}</span><span class="mouth">${MOUTH[x.id]}</span>`, ok: x === h })),
+        afterSay: [[syl, 'ar']],
       };
     },
   });
 }
 
 /* ================= الكتابة بالتتبّع ================= */
-function trace(set, idx = 0, lang = 'ar') {
+function trace(set, idx = 0, lang = 'ar', onDone) {
   let i = idx;
   const isAr = lang === 'ar', isNum = lang === 'num';
   const fontFam = isAr ? '"Noto Naskh Arabic", serif' : '"Baloo Bhaijaan 2", "Comic Sans MS", sans-serif';
@@ -474,8 +445,9 @@ function trace(set, idx = 0, lang = 'ar') {
     main(bar('✍️ أكتب') + `
       <div class="trace-top"><button class="btn sm" id="tPrev">→</button><div class="tchar ${isAr ? 'ar-font' : ''}">${ch}</div><button class="btn sm" id="tNext">←</button></div>
       <div class="canvas-box" id="cbox"><canvas id="guide"></canvas><canvas id="draw"></canvas></div>
-      <div class="btns"><button class="btn alt" id="tClear">🧽 امسحي</button><button class="btn" id="tCheck">✅ انتهيت</button><button class="btn alt" id="tHear">🔊</button></div>`);
+      <div class="btns"><button class="btn alt" id="tClear">🧽 امسحي</button><button class="btn" id="tCheck">✅ انتهيت</button><button class="btn alt" id="tHear">🔊</button></div>${onDone ? '<button class="hear" id="tSkip">تخطّي ←</button>' : ''}`);
     const sid = SCR, box = $('#cbox');
+    if (onDone) $('#tSkip').onclick = () => { sfx.tap(); onDone(); };
     const W = Math.min(box.clientWidth || 340, 420), dpr = Math.min(window.devicePixelRatio || 1, 2), P = Math.round(W * dpr);
     box.style.height = W + 'px';
     const g = $('#guide'), d = $('#draw');
@@ -542,7 +514,7 @@ function trace(set, idx = 0, lang = 'ar') {
         rec(key, true, 'كتابة ' + ch); sfx.ok(); celebrate(true); addStars(2);
         d.classList.add('done');
         const p = pick(PRAISE);
-        teacher(p + ' كتابة جميلة! ✍️').then(() => { if (sid === SCR) later(() => { i = (i + 1) % set.length; show(); }, 600); });
+        teacher(p + ' كتابة جميلة! ✍️').then(() => { if (sid === SCR) later(() => { if (onDone) return onDone(); i = (i + 1) % set.length; show(); }, 600); });
       } else {
         rec(key, false, 'كتابة ' + ch); sfx.no();
         teacher(coverage < 0.5 ? 'جميل! لكن غطّي الحرف الوردي كله بإصبعك 🌸 حاولي مرة أخرى' : 'حاولي أن تبقي داخل الحرف الوردي ولا تخرجي كثيرًا 🙂');
@@ -607,7 +579,7 @@ function numChoices(ans, n = 3) {
 function countQuiz() {
   let lv = S.levels.count || 1, streak = 0;
   quiz({
-    title: '🧮 لعبة العدّ', total: 8,
+    title: '🧮 لعبة العدّ', total: 6,
     onResult(ok) { streak = ok ? streak + 1 : 0; if (streak >= 3 && lv < 3) { lv++; streak = 0; S.levels.count = lv; save(); } if (!ok && lv > 1) { lv--; S.levels.count = lv; save(); } },
     make() {
       const max = [5, 10, 15][lv - 1], n = 1 + rnd(max), e = pick(['🍎', '⭐', '🐟', '🎈', '🌸', '🍓', '🐥', '🚗', '🐞']);
@@ -675,7 +647,7 @@ function mathQuiz(op) {
   const o = OPS[op];
   let lv = S.levels[op] || 1, streak = 0, miss = 0, levelUp = false;
   quiz({
-    title: o.i + ' ' + o.t, total: 8,
+    title: o.i + ' ' + o.t, total: 6,
     onResult(ok) {
       if (ok) { streak++; miss = 0; if (streak >= 3 && lv < 3) { lv++; streak = 0; levelUp = true; } }
       else { streak = 0; miss++; if (miss >= 2 && lv > 1) { lv--; miss = 0; } }
@@ -758,22 +730,22 @@ function langQuiz(lang) {
     .filter((x, k, a) => a.findIndex(y => y.w === x.w) === k);
   let last;
   quiz({
-    title: L.flag + ' اسمعي واختاري', total: 8,
+    title: L.flag + ' اسمعي واختاري', total: 6,
     make(i) {
       if (i % 4 === 3) { // تمييز الحروف
         const t = pickWeighted(L.alpha, x => lang + ':L:' + x[0]);
-        const others = shuffle(L.alpha.filter(x => x !== t)).slice(0, 3);
+        const others = shuffle(L.alpha.filter(x => x !== t)).slice(0, 2);
         return {
-          key: lang + ':L:' + t[0], label: 'الحرف ' + t[0], cls: 'four',
+          key: lang + ':L:' + t[0], label: 'الحرف ' + t[0], cls: 'three',
           text: 'أين هذا الحرف؟ 👂', say: [['أين الحرف', 'ar'], [t[0], lang]], html: '<div class="emo-big">🔤</div>',
           choices: shuffle([t, ...others]).map(x => ({ h: `<span class="cbig latin">${x[0]}</span>`, ok: x === t, dir: 'ltr' })),
           afterSay: [[t[0], lang], ['مثل', 'ar'], [t[1], lang]],
         };
       }
       const t = pickWeighted(pool, x => lang + ':w:' + x.w, last); last = t;
-      const others = shuffle(pool.filter(x => x.e !== t.e)).slice(0, 3);
+      const others = shuffle(pool.filter(x => x.e !== t.e)).slice(0, 2);
       return {
-        key: lang + ':w:' + t.w, label: t.w + ' (' + t.ar + ')', cls: 'four',
+        key: lang + ':w:' + t.w, label: t.w + ' (' + t.ar + ')', cls: 'three',
         html: `<div class="qword latin" dir="ltr">${t.w}</div>`,
         text: `أين <b dir="ltr">${t.w}</b>؟ 👂`, say: [['أين', 'ar'], [t.w, lang]],
         choices: shuffle([t, ...others]).map(x => ({ h: `<span class="cemo">${x.e}</span>`, ok: x === t })),
