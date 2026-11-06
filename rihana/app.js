@@ -37,7 +37,7 @@ function speak(parts) {
   lastParts = parts;
   const tok = ++speakToken;
   if (!S.settings.voice || !hasTTS) return Promise.resolve();
-  try { speechSynthesis.cancel(); } catch (e) { /* */ }
+  try { if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel(); speechSynthesis.resume(); } catch (e) { /* */ }
   return new Promise(res => {
     let i = 0;
     const next = () => {
@@ -52,9 +52,9 @@ function speak(parts) {
       const fin = () => { if (done) return; done = true; clearTimeout(guard); setTimeout(next, 150); };
       const guard = setTimeout(fin, 3000 + String(t).length * 260 / S.settings.rate);
       u.onend = fin; u.onerror = fin;
-      speechSynthesis.speak(u);
+      try { speechSynthesis.speak(u); } catch (e) { fin(); }
     };
-    setTimeout(next, 60);
+    next();
   });
 }
 
@@ -837,7 +837,17 @@ $('#startBtn').onclick = () => {
   started = true; tone([1], 0.01, 'sine', 0.0002); // تفعيل الصوت على الهواتف
   if (hasTTS) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) { /* */ } loadVoices(); }
   $('#start').classList.add('hide');
+  setTimeout(() => { loadVoices(); voiceCheck(); }, 1200);
   stack.length = 0; go(home, true);
 };
+function voiceCheck() {
+  const n = $('#voiceNote'); if (!n) return;
+  let msg = '';
+  if (!hasTTS) msg = '🔇 هذا المتصفح لا يدعم صوت المعلمة. افتحوا الرابط في متصفح Chrome (أو Safari على آيفون) مباشرة، وليس داخل تطبيق آخر.';
+  else if (!voices.length) msg = '🔇 لم يجد المتصفح أي صوت على الجهاز. ثبّتوا «Google Text-to-Speech» (أندرويد) ثم أعيدوا فتح الصفحة.';
+  else if (!voiceFor('ar')) msg = '🔇 لا يوجد صوت عربي على الجهاز. أندرويد: الإعدادات ← إمكانية الوصول ← تحويل النص إلى كلام ← محرك Google ← تثبيت بيانات الصوت ← العربية. آيفون: الإعدادات ← تسهيلات الاستخدام ← المحتوى المنطوق ← الأصوات ← العربية.';
+  n.innerHTML = msg; n.hidden = !msg;
+}
 renderStars(); renderClock();
+setTimeout(() => { loadVoices(); voiceCheck(); }, 1500);
 $('#startName').textContent = NAME;
