@@ -820,7 +820,11 @@ function parent() {
   $('#sg').onchange = e => { S.settings.goal = +e.target.value; S.breakShown = ''; save(); };
   $('#sq').onchange = e => { S.settings.qtime = +e.target.value; save(); };
   $('#test').onclick = () => speak([[`مرحبًا ${NAME}`, 'ar'], ['Bonjour Rihana', 'fr'], ['Hello Rihana', 'en']]);
-  $('#reset').onclick = () => { if (confirm('هل تريدون مسح كل النجوم والتقدّم؟')) { const st = S.settings; S = JSON.parse(JSON.stringify(DEFAULT)); S.settings = st; save(); renderStars(); renderClock(); goHome(); } };
+  let armed = false;
+  $('#reset').onclick = e => {
+    if (!armed) { armed = true; e.target.textContent = '⚠️ اضغطوا مرة ثانية للتأكيد'; later(() => { armed = false; const b = $('#reset'); if (b) b.textContent = '🗑️ مسح كل التقدّم'; }, 4000); return; }
+    const st = S.settings; S = JSON.parse(JSON.stringify(DEFAULT)); S.settings = st; save(); renderStars(); renderClock(); goHome();
+  };
   teacher('هنا تتابعون تقدّم ريحانة وتغيّرون الإعدادات ⚙️');
 }
 
